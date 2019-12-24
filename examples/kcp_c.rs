@@ -14,6 +14,7 @@ use std::str;
 async fn main()  -> Except<()>{
     let sock_addr:SocketAddr = "127.0.0.1:8080".parse().expect("parse sockset error"); 
     let mut stream = kcp::KcpStream::connect(&sock_addr).await;
+    stream.kcp_check().await;
     utils::status("connected", true);
     loop{
         let mut buf = [0;4096];
