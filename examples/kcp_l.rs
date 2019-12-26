@@ -19,6 +19,7 @@ async fn main()  -> Except<()>{
     let addr = env::args().nth(1).unwrap_or_else(|| {
         panic!("this program requires at least one argument")
     });
+    println!("run in {}", addr);
     let mut listener = kcp::KcpListener::bind(addr).await?;
     let mut c = 0;let mut ec = 0;
     loop{
