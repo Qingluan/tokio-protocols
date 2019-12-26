@@ -5,8 +5,8 @@ use std::io::{self, Cursor, Error, ErrorKind,
     // Write
 };
 
-use bytes::{Buf, BufMut, BytesMut, LittleEndian};
-
+use bytes::{Buf, BufMut, BytesMut};
+// use byteorder::{LittleEndian};
 // use crate::kcp::KcpOutput;
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
@@ -47,17 +47,17 @@ struct Segment {
     xmit: u32,
     data: Vec<u8>,
 }
-#[allow(deprecated)]
+
 impl Segment {
     fn encode(&self, buf: &mut BytesMut) {
-        buf.put_u32::<LittleEndian>(self.conv);
-        buf.put::<u8>(self.cmd);
-        buf.put::<u8>(self.frg);
-        buf.put_u16::<LittleEndian>(self.wnd as u16);
-        buf.put_u32::<LittleEndian>(self.ts);
-        buf.put_u32::<LittleEndian>(self.sn);
-        buf.put_u32::<LittleEndian>(self.una);
-        buf.put_u32::<LittleEndian>(self.data.len() as u32);
+        buf.put_u32_le(self.conv);
+        buf.put_u8(self.cmd);
+        buf.put_u8(self.frg);
+        buf.put_u16_le(self.wnd as u16);
+        buf.put_u32_le(self.ts);
+        buf.put_u32_le(self.sn);
+        buf.put_u32_le(self.una);
+        buf.put_u32_le(self.data.len() as u32);
         buf.put_slice(&self.data);
     }
 }

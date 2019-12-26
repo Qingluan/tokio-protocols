@@ -21,9 +21,9 @@ use tokio::net::ToSocketAddrs;
 // use futures::future::poll_fn;
 use crate::utils::status;
 
-use bytes::ByteOrder; 
-use bytes::LittleEndian;
-
+// use bytes::ByteOrder;
+// use bytes::LittleEndian;
+use byteorder::{ByteOrder, LittleEndian};
 mod kcb;
 use kcb::Kcb;
 use crate::ctime;
@@ -395,7 +395,7 @@ impl KcpStream{
 
 
     pub async fn connect(addr: &SocketAddr) -> Self{
-        let r: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let r: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let udp = UdpSocket::bind(&r).await.unwrap();
         let udp = Rc::new(RefCell::new(udp));
         let conv = rand::random::<u32>();
