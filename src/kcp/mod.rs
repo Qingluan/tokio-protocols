@@ -1,6 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io::{
+    self, 
+    Read, 
+    // Write
+};
 use std::net::SocketAddr;
 use std::rc::Rc;
 // use std::cell::RefMut;
@@ -8,7 +12,14 @@ use std::rc::Rc;
 
 // use std::future::AsyncWrite;
 // use mio::event::Evented;
-use mio::{self,Ready, Registration, PollOpt, Token, SetReadiness};
+use mio::{
+    self,
+    // Ready,
+    Registration,
+    // PollOpt,
+    // Token,
+    SetReadiness
+};
 
 use std::task::{Poll, Context};
 use std::pin::Pin;
@@ -24,23 +35,28 @@ use tokio::time::Duration;
 // use tokio::io::PollEvented;
 use tokio::time::timeout_at;
 use tokio::time::Instant;
-use tokio::time::Elapsed;
+// use tokio::time::Elapsed;
 use tokio::time::Timeout;
 use tokio::net::ToSocketAddrs;
-use futures::future::poll_fn;
+// use futures::future::poll_fn;
 
 // use futures::async_await::PollOnce;
 use crate::utils::status;
 
-use bytes::{Buf, BufMut, ByteOrder, LittleEndian};
+use bytes::{
+    // Buf, 
+    // BufMut,
+    ByteOrder, 
+    LittleEndian
+};
 mod kcb;
 use kcb::Kcb;
 use crate::ctime;
 
 use crate::utils::Except;
-use crate::utils::err_with;
+// use crate::utils::err_with;
 
-use std::sync::Mutex;
+// use std::sync::Mutex;
 
 // struct GlobalInterval{
 //     kcp_interval: Option<KcpInterval<'static,Nothing>>
@@ -53,9 +69,10 @@ use std::sync::Mutex;
 //         })
 //     };
 // }
-
+#[allow(unused)]
 macro_rules! async_to_poll{
     ($expre: expr, $cx: expr) => {
+        
         {
             let mut f = Box::pin($expre);
             Pin::new(&mut f).poll($cx)
@@ -71,6 +88,7 @@ struct KcpPair{
     token: Rc<RefCell<Timeout<Nothing>>>,
 }
 
+#[allow(unused)]
 impl KcpPair {
     fn reset_token(&mut self, i: Instant){
         let token = timeout_at(i, Nothing);
@@ -117,7 +135,7 @@ impl KcpListener{
 
             match one_recv_result{
                 Err(e) => {
-                    status(&format!("error :[{}] ",e), false);
+                    // status(&format!("error :[{}] ",e), false);
                     return Err(e);
                 },
                 Ok((n, addr)) => {
@@ -139,7 +157,7 @@ impl KcpListener{
                         if stream.buf.len() < 25{
                             continue
                         }
-                        status(&format!("now buf: {}",stream.buf.len()), true);
+                        // status(&format!("now buf: {}",stream.buf.len()), true);
                         return Ok((stream, addr));
                     }else{
                         let conv = LittleEndian::read_u32(&buf[..4]);
@@ -291,7 +309,7 @@ impl Read for KcpStream {
             k.recv(buf)
         };
         match result {
-            Err(_) => Err(io::Error::new(io::ErrorKind::WouldBlock, "would block")),
+            Err(_) => Err(io::Error::new(io::ErrorKind::WouldBlock, "normal read would block")),
             Ok(n) => Ok(n),
         }
     }
@@ -357,28 +375,7 @@ impl KcpStream{
             self.buf = buf_v;
             self.to_send = Some((si, a));
         }
-        // if self.buf.len() == 0{
-        //     status("before read ",true);
-        //     // self.buf = vec![0; 1024];
-        //     // let (u, a) = 
-        //     let mut buf = [0;1024];
-        //     match self.socket.borrow_mut().recv_from(&mut buf).await{
-        //         Ok(s) => {
-        //             let (size, peer) = s;
-        //             status(&format!("read success!: {} in {:?}", size, peer),true);
-        //             self.to_send = Some(s);
-        //             self.buf = buf[..size].to_vec();
-        //         },
-        //         Err(e) =>{
-        //             status(&format!("read failed!:{} ", e), false);
 
-        //         }
-        //     };
-            
-        //     // self.to_send = Some((u,a));
-        // }else{
-        //     status("already read ",true);
-        // }
         
         if let Some((size, a)) = self.to_send{
             let dur = {
@@ -392,7 +389,7 @@ impl KcpStream{
                 Instant::now() +
                     Duration::from_millis(dur as u64),
             );
-            self.set_readiness.set_readiness(mio::Ready::readable());
+            self.set_readiness.set_readiness(mio::Ready::readable())?;
             self.to_send = None;
             return Ok(Some(a));
             
@@ -400,6 +397,11 @@ impl KcpStream{
         Ok(None)
     }
 
+    async fn flush(&mut self) -> io::Result<()>{
+        let mut kcb = self.kcb.borrow_mut();
+        kcb.flush().await;
+        Ok(())
+    }
     
     pub async fn kcp_check(&mut self) {
         
@@ -448,29 +450,7 @@ impl KcpStream{
             set_readiness: set_readiness.clone(),
             token: token.clone(),
         };
-        // let interval = KcpInterval {
-        //         kcb: kcb.clone(),
-        //         token: Rc::new(RefCell::new(Box::leak(Box::new(timeout_at(now, Nothing)))))
-        //     };
-        
-        // tokio::spawn(async move{
-        //     loop_kcp_interval(interval.clone())
-        // });
-        // tokio::spawn(async move{
-        //     let now = Instant::now();
-        //     let interval = KcpInterval {
-        //         kcb: kcb.clone(),
-        //         token: Rc::new(RefCell::new(Box::leak(Box::new(timeout_at(now, Nothing)))))
-        //     };
-            
-        //     loop{
-        //         // interval.await;
-        //         interval.await;
-        //     }
-        // });
-        // tokio::spawn(async move  {
-        //     let mut stream_shared = stream.clone();
-        // });
+
         (&mut stream).kcp_check().await;
         stream
     }
@@ -480,8 +460,8 @@ impl KcpStream{
         if self.to_send == None || self.buf.len() == 0{
             // status("read from socket", true);
             match self.udp_recv_and_iuc_update(None).await{
-                Ok(peer) => {
-                    status(&format!("peer: {:?}", peer), true);
+                Ok(_) => {
+                    // status(&format!("peer: {:?}", peer), true);
                 },
                 Err(e) => {
                     status(&format!("error in udp recv:{}", e), false);
@@ -490,22 +470,18 @@ impl KcpStream{
             
             
         }
-        // else{
-            // status(&format!("self.buf : {:?}", self.buf), true);
-            // status(&format!("self.buf : {}", self.buf.len()), true);
-        
-        // let addr = self.udp_recv_and_iuc_update(None).await;
-        // status(&format!("buf : [{}]", self.buf.len()), true);
+   
         let result = {
             let mut kcb = self.kcb.borrow_mut();
             kcb.recv(&mut self.buf)
         };
         
         match result {
-            Err(e) => {
-                status(&format!("{}", e), false);
-                Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"))
+            Err(ref e) if e.kind() == io::ErrorKind::Other => {
+                // status(&format!("{}", e), false);
+                Err(io::Error::new(io::ErrorKind::Other, "try read would block wait"))
             },
+            Err(e) => Err(e),
             Ok(n) => {
                 // buf.copy_from_slice(&self.buf[..n]);
                 if n <= buf.len(){
@@ -514,70 +490,12 @@ impl KcpStream{
                     }
                     self.buf = vec![];
                 }else{
-                    let l = buf.len();
-                    for (dst, src) in buf.iter_mut().zip(&self.buf[..l]) {
-                        *dst = *src;
-                    }
-                    self.buf = self.buf[l..n].to_vec();
-                    // if let Some(addr) = addr.expect("no addr from iuc"){
-                    //     self.to_send = Some((n-l, addr));
-                    // }
-                    
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "must 1024 buf!"));
                 }
-
                 self.kcp_check().await;
-                // buf.copy_within(&mut self.buf[..n], n);
-                // self.buf
                 Ok(n)
             },
         }
-        
-        // let r_size = {
-        //     let mut kcb = self.kcb.borrow_mut();
-        //     let size = kcb.read(buf).await.unwrap();
-        //     size
-        // };
-        // loop{
-            
-        //     self.kcp_check().await;
-        //     let (size,dur) ={
-        //         let mut kcb = self.kcb.borrow_mut();
-        //         let size = kcb.input(&mut buf[..r_size]);
-        //         kcb.update(clock()).await;
-        //         (size, kcb.check(clock()))
-        //     };
-        //     let next = Instant::now() + Duration::from_millis(dur as u64);
-        //     let new_token = timeout_at(next, Nothing);
-        //     self.token = Rc::new(RefCell::new(new_token));
-        //     let _ = self.set_readiness.set_readiness(mio::Ready::readable());
-        //     // status(&format!("next millis: {}", dur), true);
-        //     self.kcp_check().await;
-        //     return size;
-            
-        // }
-        
-        // let (size,dur) ={
-        //     let mut kcb = self.kcb.borrow_mut();
-        //     let size = kcb.input(&mut buf[..r_size]);
-        //     kcb.update(clock()).await;
-        //     (size, kcb.check(clock()))
-        // };
-        // let next = Instant::now() + Duration::from_millis(dur as u64);
-        // let new_token = timeout_at(next, Nothing);
-        // self.token = Rc::new(RefCell::new(new_token));
-        // let _ = self.set_readiness.set_readiness(mio::Ready::readable());
-        // // status(&format!("next millis: {}", dur), true);
-        // self.kcp_check().await;
-        // return size;
-        
-        // return Ok(0);
-        // loop{
-        //     self.iuc_update().await;
-        //     if let Some((s,_)) = self.to_send {
-        //         return Ok(s);
-        //     }
-        // }
-        
         
     }
 
@@ -623,7 +541,25 @@ impl AsyncRead for KcpStream {
                     Poll::Ready(_) => {
                         match async_to_poll!(handle.udp_recv_and_iuc_update(None), cx){
                             Poll::Ready(_) => {
-                                async_to_poll!(handle.try_read(buf), cx)
+                                match async_to_poll!(handle.try_read(buf), cx){
+                                    Poll::Ready(ok_or_err) => {
+                                        match ok_or_err{
+                                            Ok(u) => Poll::Ready(Ok(u)),
+                                            Err(ref e) if e.kind() == io::ErrorKind::Other => {
+                                                // status(&format!("try resume {} ", e), true);
+                                                // match async_to_poll!(handle.kcp_check(), cx){
+                                                //     Poll::Ready(_) => Poll::Pending,
+                                                //     Poll::Pending => Poll::Pending
+                                                // }
+                                                Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "EOF")))
+                                            },
+                                            Err(e) => {
+                                                Poll::Ready(Err(e))
+                                            }
+                                        }
+                                    },
+                                    Poll::Pending => Poll::Pending,
+                                }
                             },
                             Poll::Pending => Poll::Pending,
                         }
@@ -680,8 +616,8 @@ impl AsyncWrite for KcpStream {
     #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // tcp flush is a no-op
-        Poll::Ready(Ok(()))
-        // async_to_poll!(self.get_mut().flush(), cx)
+        // Poll::Ready(Ok(()))
+        async_to_poll!(self.get_mut().flush(), cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {

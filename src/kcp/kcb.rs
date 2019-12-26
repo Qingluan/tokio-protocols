@@ -1,6 +1,9 @@
 use std::cmp;
 use std::collections::VecDeque;
-use std::io::{self, Cursor, Error, ErrorKind, Read, Write};
+use std::io::{self, Cursor, Error, ErrorKind,
+    // Read, 
+    // Write
+};
 
 use bytes::{Buf, BufMut, BytesMut, LittleEndian};
 
@@ -44,7 +47,7 @@ struct Segment {
     xmit: u32,
     data: Vec<u8>,
 }
-
+#[allow(deprecated)]
 impl Segment {
     fn encode(&self, buf: &mut BytesMut) {
         buf.put_u32::<LittleEndian>(self.conv);
@@ -427,18 +430,18 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
         let mut flag = false;
         let mut maxack: u32 = 0;
         while buf.remaining() >= KCP_OVERHEAD {
-            let conv = buf.get_u32::<LittleEndian>();
+            let conv = buf.get_u32_le();//::<LittleEndian>();
             if conv != self.conv {
                 return Err(Error::new(ErrorKind::InvalidData, "invalid data"));
             }
 
             let cmd = buf.get_u8();
             let frg = buf.get_u8();
-            let wnd = buf.get_u16::<LittleEndian>();
-            let ts = buf.get_u32::<LittleEndian>();
-            let sn = buf.get_u32::<LittleEndian>();
-            let una = buf.get_u32::<LittleEndian>();
-            let len = buf.get_u32::<LittleEndian>();
+            let wnd = buf.get_u16_le();//::<LittleEndian>();
+            let ts = buf.get_u32_le();//::<LittleEndian>();
+            let sn = buf.get_u32_le();//::<LittleEndian>();
+            let una = buf.get_u32_le();//::<LittleEndian>();
+            let len = buf.get_u32_le();//::<LittleEndian>();
 
             let len = len as usize;
             if buf.remaining() < len {
@@ -533,9 +536,9 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
         0
     }
 
-    pub async fn read(&mut self, buf:&mut [u8]) -> io::Result<usize>{
-        self.output.read(buf).await
-    }
+    // pub async fn read(&mut self, buf:&mut [u8]) -> io::Result<usize>{
+    //     self.output.read(buf).await
+    // }
 
     /// flush pending data
     pub async fn flush(&mut self) {
@@ -556,7 +559,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
         // flush acknowledges
         for ack in &self.acklist {
             if self.buffer.remaining_mut() + KCP_OVERHEAD > self.mtu {
-                self.output.write_all(&self.buffer).await;
+                let _ = self.output.write_all(&self.buffer).await;
                 self.buffer.clear();
             }
             seg.sn = ack.0;
@@ -592,7 +595,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
         if (self.probe & KCP_ASK_SEND) != 0 {
             seg.cmd = KCP_CMD_WASK;
             if self.buffer.remaining_mut() + KCP_OVERHEAD > self.mtu {
-                self.output.write_all(&self.buffer).await;
+                let _ =  self.output.write_all(&self.buffer).await;
                 self.buffer.clear();
             }
             seg.encode(&mut self.buffer);
@@ -602,7 +605,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
         if (self.probe & KCP_ASK_TELL) != 0 {
             seg.cmd = KCP_CMD_WINS;
             if self.buffer.remaining_mut() + KCP_OVERHEAD > self.mtu {
-                self.output.write_all(&self.buffer).await;
+                let _ = self.output.write_all(&self.buffer).await;
                 self.buffer.clear();
             }
             seg.encode(&mut self.buffer);
@@ -682,7 +685,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
                 let need = KCP_OVERHEAD + len;
 
                 if self.buffer.remaining_mut() + need > self.mtu {
-                    self.output.write_all(&self.buffer).await;
+                    let _ = self.output.write_all(&self.buffer).await;
                     self.buffer.clear();
                 }
                 segment.encode(&mut self.buffer);
@@ -696,7 +699,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
 
         // flash remain segments
         if self.buffer.remaining_mut() > 0 {
-            self.output.write_all(&self.buffer).await;
+            let _ = self.output.write_all(&self.buffer).await;
             self.buffer.clear();
         }
 
@@ -791,6 +794,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
     }
 
     /// change MTU size, default is 1400
+    #[allow(unused)]
     pub fn setmtu(&mut self, mtu: usize) -> bool {
         if mtu < 50 || mtu < KCP_OVERHEAD {
             return false;
@@ -845,6 +849,7 @@ where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
     }
 
     /// get how many packet is waiting to be sent
+    #[allow(unused)]
     pub fn waitsnd(&self) -> usize {
         self.snd_buf.len() + self.snd_queue.len()
     }

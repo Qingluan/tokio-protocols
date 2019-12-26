@@ -8,7 +8,7 @@ pub fn err_with(msg:&str) -> Box<dyn std::error::Error  >{
 
 pub fn status(label: &str, stateus:bool){
     if stateus {
-        println!("{} [{}]",label,"ok".green().bold());
+        print!("{} [{}]\r",label.trim(),"ok".green().bold());
     }else{
         println!("{} [{}]",label,"no".yellow().bold());    
     }
