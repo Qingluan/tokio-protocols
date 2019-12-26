@@ -3,7 +3,11 @@ use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use std::marker::Unpin;
 use std::io;
-
+use log::{debug, error, trace};
+use futures::{
+    future::{self, Either},
+    stream::{FuturesUnordered, StreamExt},
+};
 use crate::socks5::Address;
 use crate::utils::*;
 
@@ -20,7 +24,7 @@ where A: AsyncRead + Unpin,
     B: AsyncWrite + Unpin,
 {
  
-    pub async fn tcp_connector(mut stream:A) -> Except<()>{
+    pub async fn tcp_connector(mut stream:TcpStream) -> Except<()>{
         let remote_addr = match Address::read_from(&mut stream).await {
             Ok(o) => o,
             Err(err) => {
@@ -31,11 +35,8 @@ where A: AsyncRead + Unpin,
                 return Err(From::from(err));
             }
         };
-
         let mut remote_stream = match remote_addr {
             Address::SocketAddress(ref saddr) => {
-                
-    
                 match TcpStream::connect(saddr).await {
                     Ok(s) => {
                         err_with(&format!("Connected to remote {}", saddr));
@@ -43,7 +44,7 @@ where A: AsyncRead + Unpin,
                     }
                     Err(err) => {
                         err_with(&format!("Failed to connect remote {}, {}", saddr, err));
-                        return Err(err);
+                        return Err(Box::new(err));
                     }
                 }
             }
@@ -95,30 +96,14 @@ where A: AsyncRead + Unpin,
                     }
                     Err(err) => {
                         error!("Failed to connect remote {}:{}, {}", dname, port, err);
-                        return Err(err);
+                        return Err(Box::new(err));
                     }
                 };
-    
-                // Still need to check forbidden IPs
-                // let forbidden_ip = &context.config().forbidden_ip;
-                // if !forbidden_ip.is_empty() {
-                //     let peer_addr = s.peer_addr()?;
-    
-                //     if forbidden_ip.contains(&peer_addr.ip()) {
-                //         error!("{} is forbidden, failed to connect {}", peer_addr.ip(), peer_addr);
-                //         let err = io::Error::new(
-                //             io::ErrorKind::Other,
-                //             format!("{} is forbidden, failed to connect {}", peer_addr.ip(), peer_addr),
-                //         );
-                //         return Err(err);
-                //     }
-                // }
-    
                 s
             }
         };
     
-        debug!("Relay {} <-> {} established", peer_addr, remote_addr);
+        debug!("Relay  <-> {} established",  remote_addr);
     
         let (mut cr, mut cw) = stream.split();
         let (mut sr, mut sw) = remote_stream.split();
@@ -132,10 +117,10 @@ where A: AsyncRead + Unpin,
         let whalf = copy(&mut sr, &mut cw);
     
         match future::select(rhalf, whalf).await {
-            Either::Left((Ok(_), _)) => trace!("Relay {} -> {} closed", peer_addr, remote_addr),
-            Either::Left((Err(err), _)) => trace!("Relay {} -> {} closed with error {:?}", peer_addr, remote_addr, err),
-            Either::Right((Ok(_), _)) => trace!("Relay {} <- {} closed", peer_addr, remote_addr),
-            Either::Right((Err(err), _)) => trace!("Relay {} <- {} closed with error {:?}", peer_addr, remote_addr, err),
+            Either::Left((Ok(_), _)) => trace!(" -> {} closed",  remote_addr),
+            Either::Left((Err(err), _)) => trace!(" -> {} closed with error {:?}",  remote_addr, err),
+            Either::Right((Ok(_), _)) => trace!(" <- {} closed",  remote_addr),
+            Either::Right((Err(err), _)) => trace!(" <- {} closed with error {:?}", remote_addr, err),
         }
 
         Ok(())
