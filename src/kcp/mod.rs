@@ -1,54 +1,29 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{
-    self, 
-    Read, 
-    // Write
-};
+use std::io::Read;
+use std::io;
 use std::net::SocketAddr;
 use std::rc::Rc;
-// use std::cell::RefMut;
-// use std::time::{Duration};
-
-// use std::future::AsyncWrite;
-// use mio::event::Evented;
-use mio::{
-    self,
-    // Ready,
-    Registration,
-    // PollOpt,
-    // Token,
-    SetReadiness
-};
-
+use mio;
+use mio::Registration;
+use mio::SetReadiness;
 use std::task::{Poll, Context};
 use std::pin::Pin;
 use std::future::Future;
-
 use tokio::net::UdpSocket;
-
 use tokio::io::AsyncWrite;
-// use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncRead;
-// use tokio::io::AsyncReadExt;
 use tokio::time::Duration;
-// use tokio::io::PollEvented;
 use tokio::time::timeout_at;
 use tokio::time::Instant;
-// use tokio::time::Elapsed;
 use tokio::time::Timeout;
 use tokio::net::ToSocketAddrs;
 // use futures::future::poll_fn;
-
-// use futures::async_await::PollOnce;
 use crate::utils::status;
 
-use bytes::{
-    // Buf, 
-    // BufMut,
-    ByteOrder, 
-    LittleEndian
-};
+use bytes::ByteOrder; 
+use bytes::LittleEndian;
+
 mod kcb;
 use kcb::Kcb;
 use crate::ctime;
