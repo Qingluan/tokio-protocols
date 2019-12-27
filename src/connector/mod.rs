@@ -1,30 +1,29 @@
-use tokio::io::AsyncWrite;
+// use tokio::io::AsyncWrite;
 use tokio::io::AsyncRead;
+// use tokio::io::ReadHalf;
+// use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 use std::marker::Unpin;
-use std::io;
+// use std::io;
 use log::{debug, error, trace};
 use futures::{
     future::{self, Either},
-    stream::{FuturesUnordered, StreamExt},
+    // stream::{FuturesUnordered, StreamExt},
 };
 use crate::socks5::Address;
 use crate::utils::*;
 
-pub struct TcpConnector<A,B>
-where A: AsyncRead + Unpin,
-    B: AsyncWrite + Unpin,
-{
-    from_socket: A,
-    to_socket: B,
-}
+pub struct TcpConnector;
+// pub trait CanSplit{
+//     fn split<T>(self) -> (ReadHalf<T>, WriteHalf<T>) where T: AsyncRead+ AsyncWrite;
+// }
 
-impl <A,B>TcpConnector<A,B>
-where A: AsyncRead + Unpin,
-    B: AsyncWrite + Unpin,
-{
+
+impl TcpConnector{
  
-    pub async fn tcp_connector(mut stream:TcpStream) -> Except<()>{
+    pub async fn new<R>(mut stream:R) -> Except<(TcpStream,R)>
+    where R: AsyncRead + Unpin 
+    {
         let remote_addr = match Address::read_from(&mut stream).await {
             Ok(o) => o,
             Err(err) => {
@@ -35,7 +34,7 @@ where A: AsyncRead + Unpin,
                 return Err(From::from(err));
             }
         };
-        let mut remote_stream = match remote_addr {
+        let remote_stream = match remote_addr {
             Address::SocketAddress(ref saddr) => {
                 match TcpStream::connect(saddr).await {
                     Ok(s) => {
@@ -74,7 +73,6 @@ where A: AsyncRead + Unpin,
                         }
                     }
                 }
-    
                 match stream_opt {
                     Some(s) => {
                         debug!("Connected to remote {}:{}", dname, port);
@@ -104,7 +102,12 @@ where A: AsyncRead + Unpin,
         };
     
         debug!("Relay  <-> {} established",  remote_addr);
+        Ok((remote_stream,stream))
     
+    }
+
+    pub async fn connect(stream: &mut TcpStream, remote_stream:&mut TcpStream) -> Except<()>{
+
         let (mut cr, mut cw) = stream.split();
         let (mut sr, mut sw) = remote_stream.split();
     
@@ -117,13 +120,11 @@ where A: AsyncRead + Unpin,
         let whalf = copy(&mut sr, &mut cw);
     
         match future::select(rhalf, whalf).await {
-            Either::Left((Ok(_), _)) => trace!(" -> {} closed",  remote_addr),
-            Either::Left((Err(err), _)) => trace!(" -> {} closed with error {:?}",  remote_addr, err),
-            Either::Right((Ok(_), _)) => trace!(" <- {} closed",  remote_addr),
-            Either::Right((Err(err), _)) => trace!(" <- {} closed with error {:?}", remote_addr, err),
+            Either::Left((Ok(_), _)) => trace!(" -> locl closed"),
+            Either::Left((Err(err), _)) => trace!(" -> {} closed with error {:?}",  "remote_addr", err),
+            Either::Right((Ok(_), _)) => trace!(" <- {} closed",  "remote_addr"),
+            Either::Right((Err(err), _)) => trace!(" <- {} closed with error {:?}", "remote_addr", err),
         }
-
         Ok(())
-    
     }
 }
