@@ -25,6 +25,7 @@ use bytes::{buf::BufExt,Buf, BufMut, BytesMut};
 // use log::error;
 
 #[rustfmt::skip]
+#[allow(unused)]
 mod consts {
     pub const SOCKS5_VERSION:                          u8 = 0x05;
 
@@ -142,7 +143,7 @@ pub enum Reply {
 
     OtherReply(u8),
 }
-
+#[allow(unused)]
 impl Reply {
     #[inline]
     #[rustfmt::skip]

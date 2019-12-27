@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::ops::{Deref, DerefMut};
+// use std::ops::{Deref, DerefMut};
 
 use mio;
 use mio::Registration;
@@ -678,5 +678,9 @@ impl KcpConnector{
         let (remote_socket,k_shaked_stream) = connector::TcpConnector::new(k_stream).await?;
         self.connections.insert(k_shaked_stream.from_addr(), remote_socket);
         Ok(k_shaked_stream)
+    }
+
+    pub async fn auto_map(&mut self, k_stream:KcpStream){
+
     }
 }
