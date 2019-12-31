@@ -32,7 +32,7 @@ const KCP_THRESH_MIN: u32 = 2;
 const KCP_PROBE_INIT: u32 = 7_000; // 7 secs to probe window size
 const KCP_PROBE_LIMIT: u32 = 120_000; // up to 120 secs to probe window
 
-#[derive(Default)]
+#[derive(Default,Clone)]
 struct Segment {
     conv: u32,
     cmd: u8,
@@ -63,6 +63,7 @@ impl Segment {
 }
 
 /// KCP control block
+#[derive(Clone)]
 pub struct Kcb<W> 
 where W: AsyncWriteExt + std::marker::Unpin + AsyncReadExt
 {

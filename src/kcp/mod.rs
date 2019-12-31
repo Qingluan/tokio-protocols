@@ -13,7 +13,9 @@ use std::pin::Pin;
 use std::future::Future;
 use tokio::net::UdpSocket;
 use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 use tokio::time::Duration;
 use tokio::time::timeout_at;
 use tokio::time::Instant;
@@ -22,6 +24,9 @@ use tokio::net::ToSocketAddrs;
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::Sender;
 // use futures::future::poll_fn;
 use crate::utils::status;
 
@@ -45,41 +50,33 @@ macro_rules! async_to_poll{
         }
     }
 }
-
-#[allow(unused)]
-struct KcpPair{
-    k:Rc<RefCell<Kcb<KcpOutput>>>,
-    set_readiness: SetReadiness,
-    // token: Rc<RefCell<&'a mut Timeout<Nothing>>>,
-    token: Rc<RefCell<Timeout<Nothing>>>,
+pub struct Message{
+    buf: Vec<u8>,
+    addr: SocketAddr,
 }
-
-#[allow(unused)]
-impl KcpPair {
-    fn reset_token(&mut self, i: Instant){
-        let token = timeout_at(i, Nothing);
-        // let token_s: &'static mut Timeout<Nothing> = Box::leak(Box::new(token));
-        self.token = Rc::new(RefCell::new(token));
-    }
-}
-
 
 #[allow(unused)]
 pub struct KcpListener {
     udp: Rc<RefCell<UdpSocket>>,
-    connections: HashMap<SocketAddr, KcpStream>
+    connections: HashMap<SocketAddr, KcpStream>,
+    remote_tcps: HashMap<SocketAddr, TcpStream>,
+    channel_to_reply: Receiver<(SocketAddr,Message)>,
+    sender_to_shared: Sender<(SocketAddr,Message)>,
+    
 }
 
 #[allow(unused)]
 impl KcpListener{
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<KcpListener>{
-        
-        // let addrs = addr.to_socket_addrs().await?;
+        let (mut sx, mut rx) = mpsc::channel::<(SocketAddr,Message)>(10);
         match UdpSocket::bind(addr).await{
             Ok(udp) => {
                 Ok(KcpListener{
                     udp:Rc::new(RefCell::new(udp)),
                     connections: HashMap::new(),
+                    remote_tcps: HashMap::new(),
+                    channel_to_reply: rx,
+                    sender_to_shared: sx.clone(),
                 })
             },
             Err(e) => Result::Err(e)
@@ -94,34 +91,52 @@ impl KcpListener{
         self.connections.insert(kcp_stream.from_addr(), kcp_stream);
     }
 
+    pub async fn shake_hand(&mut self, k_stream:KcpStream) -> Except<KcpStream>{
+        let (remote_socket,k_shaked_stream) = connector::TcpConnector::new(k_stream).await?;
+        
+        self.remote_tcps.insert(k_shaked_stream.from_addr(), remote_socket);
+        Ok(k_shaked_stream)
+    }
+
+    pub async fn all_tcp_remtoes_read(&mut self, addr: SocketAddr){
+        let s = addr.clone();
+        
+        // tokio::spawn(async move{
+                // let c = self.connections.get_mut(&s);
+        // });
+        
+    }
+
+    pub async fn auto_map(&mut self, k_stream:&mut KcpStream) -> Except<()>{
+        let handled_k_stream = if self.remote_tcps.contains_key(&k_stream.fr_addr){
+            let mut buf = [0;1024];
+            let n = k_stream.read(&mut buf).await?;
+            if let Some(mut tcp_s) = self.remote_tcps.get_mut(&k_stream.fr_addr){
+                tcp_s.write_all(&mut buf[..n]).await;
+            };
+            k_stream.clone()
+        }else{
+            self.shake_hand(k_stream.to_owned()).await?
+        };
+        
+        Ok(())
+    }
+
+
     pub async fn accept(&mut self) -> io::Result<(KcpStream, SocketAddr)>{
         let mut buf = vec![0;1024];
         loop{
             let one_recv_result = {
                 let mut udp = self.udp.borrow_mut();
-                // status(&format!("accept wait: {:?}", &udp), true);
                 udp.recv_from(&mut buf).await
             };
 
             match one_recv_result{
                 Err(e) => {
-                    // status(&format!("error :[{}] ",e), false);
                     return Err(e);
                 },
                 Ok((n, addr)) => {
-                    // status(&format!("got:[{}] ",n), true);
-                    
                     if let Some(mut kp) = self.connections.get_mut(&addr){
-                        // let mut stream = KcpStream {
-                        //     kcb: kp.k.clone(),
-                        //     socket: self.udp.clone(),
-                        //     buf: vec![],
-                        //     to_send:None,
-                        //     server: true,
-                        //     init:false,
-                        //     set_readiness: kp.set_readiness.clone(),
-                        //     token: kp.token.clone(),
-                        // };
                         let mut stream = kp.clone();
                         stream.init = false;
                         stream.udp_recv_and_iuc_update(Some(
@@ -188,73 +203,6 @@ impl KcpListener{
 
 }
 
-
-#[allow(unused)]
-pub struct KcpOutput {
-    udp: Rc<RefCell<UdpSocket>>,
-    peer: SocketAddr,
-}
-
-#[allow(unused)]
-impl KcpOutput {
-    async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let u = {
-            let mut udp = self.udp.borrow_mut();
-            udp.send_to(buf, &self.peer).await
-        };
-        u
-    }
-
-    async fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl AsyncWrite for KcpOutput{
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let fu = async {
-            let mut handle = self.as_mut();
-            handle.write(buf).await
-        };
-        async_to_poll!(fu, cx)
-    }
-
-    #[inline]
-    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // tcp flush is a no-op
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(().into()))
-    }
-}
-
-impl AsyncRead for KcpOutput{
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>>{
-        let fu = async {
-            let mut udp = self.udp.borrow_mut();
-            udp.recv(buf).await
-        };
-        async_to_poll!(fu, cx)
-    }
-}
-
-
-#[derive(Clone)]
-struct Nothing;
-impl Future for Nothing {
-    type Output = ();
-    fn poll(self: Pin<&mut Self>, _: &mut Context) -> Poll<Self::Output> {
-        Poll::Ready(())
-    }
-}
-
-trait CanReset{
-    fn reset(&mut self, i: Instant);
-}
-
-
 #[derive(Clone)]
 pub struct KcpStream {
     kcb: Rc<RefCell<Kcb<KcpOutput>>>,
@@ -269,19 +217,6 @@ pub struct KcpStream {
     set_readiness: SetReadiness,
     token: Rc<RefCell<Timeout<Nothing>>>,
 }
-
-// impl Read for KcpStream {
-//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-//         let result = {
-//             let mut k = self.kcb.borrow_mut();
-//             k.recv(buf)
-//         };
-//         match result {
-//             Err(_) => Err(io::Error::new(io::ErrorKind::WouldBlock, "normal read would block")),
-//             Ok(n) => Ok(n),
-//         }
-//     }
-// }
 
 
 
@@ -448,91 +383,7 @@ impl KcpStream
         self.buf = vec![];
     }
 
-    // async fn write_all(&mut self, buf: &mut [u8]) -> io::Result<usize>{
-    //     self.write(buf).await
-    // }
 }
-// impl <'a>DerefMut for Pin<&mut &'a KcpStream>{
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         Pin::into_inner(*self)
-//     }
-// }
-
-// impl <'a>AsyncRead for &'a mut KcpStream{
-//     unsafe fn prepare_uninitialized_buffer(&self, _: &mut [std::mem::MaybeUninit<u8>]) -> bool {
-//         false
-//     }
-
-//     fn poll_read(mut 
-//         self: Pin<&mut Self>,
-//         cx: &mut Context<'_>,
-//         buf: &mut [u8],
-//     ) -> Poll<io::Result<usize>> {
-//         let is_server = self.server;
-//         if !is_server{
-//             let mut wait_or_readed = false;
-//             // let mut handle = unsafe {
-//             //     **self.get_unchecked_mut()
-//             // };
-//             let mut handle = *Pin::into_inner(self);
-//             loop{
-//                 let f = async {
-                    
-//                     let mut udp_socket = handle.socket.borrow_mut();
-//                     let mut buf = [0;1024];
-//                     let (u,a) = udp_socket.recv_from(&mut buf).await.unwrap();
-//                     // self.as_mut().reset_to_send(u,a);
-//                     // self.reset_buf();
-//                     if u > 24{
-//                         // status(&format!("{:?}", &buf[..]), true);
-//                         // handle.udp_recv_and_iuc_update(None).await;
-//                         wait_or_readed = true;
-//                     }
-//                 };
-//                 // let mut handle = self.get_mut();
-//                 let res = match async_to_poll!(f, cx){
-//                     Poll::Ready(_) => {
-//                         match async_to_poll!(handle.udp_recv_and_iuc_update(None), cx){
-//                             Poll::Ready(_) => {
-//                                 match async_to_poll!(handle.try_read(buf), cx){
-//                                     Poll::Ready(ok_or_err) => {
-//                                         match ok_or_err{
-//                                             Ok(u) => Poll::Ready(Ok(u)),
-//                                             Err(ref e) if e.kind() == io::ErrorKind::Other => {
-//                                                 // status(&format!("try resume {} ", e), true);
-//                                                 // match async_to_poll!(handle.kcp_check(), cx){
-//                                                 //     Poll::Ready(_) => Poll::Pending,
-//                                                 //     Poll::Pending => Poll::Pending
-//                                                 // }
-//                                                 Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "EOF")))
-//                                             },
-//                                             Err(e) => {
-//                                                 Poll::Ready(Err(e))
-//                                             }
-//                                         }
-//                                     },
-//                                     Poll::Pending => Poll::Pending,
-//                                 }
-//                             },
-//                             Poll::Pending => Poll::Pending,
-//                         }
-//                     },
-//                     Poll::Pending => Poll::Pending
-//                 };
-//                 if wait_or_readed{
-//                     return res;
-//                 }
-                
-//             }
-            
-//         }else{
-//             let mut handle = **self.as_mut();
-//             async_to_poll!(handle.try_read(buf), cx)
-            
-//         }
-//     }
-    
-// }
 
 impl AsyncRead for KcpStream {
     unsafe fn prepare_uninitialized_buffer(&self, _: &mut [std::mem::MaybeUninit<u8>]) -> bool {
@@ -544,8 +395,6 @@ impl AsyncRead for KcpStream {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        // let mut reader = self.kcb.borrow_mut();
-        
         let is_server = self.server;
         if !is_server{
             let mut wait_or_readed = false;
@@ -559,12 +408,9 @@ impl AsyncRead for KcpStream {
                     handle.to_send = Some((u,a));
                     handle.buf = buf.to_vec();
                     if u > 24{
-                        // status(&format!("{:?}", &buf[..]), true);
-                        // handle.udp_recv_and_iuc_update(None).await;
                         wait_or_readed = true;
                     }
                 };
-                // let mut handle = self.get_mut();
                 let res = match async_to_poll!(f, cx){
                     Poll::Ready(_) => {
                         match async_to_poll!(handle.udp_recv_and_iuc_update(None), cx){
@@ -574,11 +420,6 @@ impl AsyncRead for KcpStream {
                                         match ok_or_err{
                                             Ok(u) => Poll::Ready(Ok(u)),
                                             Err(ref e) if e.kind() == io::ErrorKind::Other => {
-                                                // status(&format!("try resume {} ", e), true);
-                                                // match async_to_poll!(handle.kcp_check(), cx){
-                                                //     Poll::Ready(_) => Poll::Pending,
-                                                //     Poll::Pending => Poll::Pending
-                                                // }
                                                 Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "EOF")))
                                             },
                                             Err(e) => {
@@ -596,27 +437,13 @@ impl AsyncRead for KcpStream {
                 };
                 if wait_or_readed{
                     return res;
-                }
-                
-            }
-            
-            
+                }   
+            }   
         }else{
             async_to_poll!(self.get_mut().try_read(buf), cx)
-        }
-        
-        
-        
+        }        
     }
 }
-
-// impl DerefMut for KcpStream
-// {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         self.stream.get_mut()
-//     }
-// }
-
 
 impl AsyncWrite for KcpStream {
     fn poll_write(
@@ -669,18 +496,114 @@ fn clock() -> u32 {
 
 
 
-pub struct KcpConnector{
-    connections: HashMap<SocketAddr, TcpStream>
+// pub struct KcpConnector{
+//     connections: HashMap<SocketAddr, TcpStream>
+// }
+
+// impl KcpConnector{
+    
+// }
+
+
+
+#[allow(unused)]
+#[derive(Clone)]
+pub struct KcpOutput {
+    udp: Rc<RefCell<UdpSocket>>,
+    peer: SocketAddr,
 }
 
-impl KcpConnector{
-    pub async fn shake_hand(&mut self, k_stream:KcpStream) -> Except<KcpStream>{
-        let (remote_socket,k_shaked_stream) = connector::TcpConnector::new(k_stream).await?;
-        self.connections.insert(k_shaked_stream.from_addr(), remote_socket);
-        Ok(k_shaked_stream)
+
+#[allow(unused)]
+impl KcpOutput {
+    // pub fn new(addr: &SocketAddr, udp: UdpSocket)->Self{
+    //     Self{
+    //         udp: Rc::new(RefCell::new(udp.clone())),
+    //         peer:addr.clone()
+    //     }
+    // }
+    async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let u = {
+            let mut udp = self.udp.borrow_mut();
+            udp.send_to(buf, &self.peer).await
+        };
+        u
     }
 
-    pub async fn auto_map(&mut self, k_stream:KcpStream){
-
+    async fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
+}
+
+impl AsyncWrite for KcpOutput{
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        let fu = async {
+            let mut handle = self.as_mut();
+            handle.write(buf).await
+        };
+        async_to_poll!(fu, cx)
+    }
+
+    #[inline]
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // tcp flush is a no-op
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(().into()))
+    }
+}
+
+impl AsyncRead for KcpOutput{
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>>{
+        let fu = async {
+            let mut udp = self.udp.borrow_mut();
+            udp.recv(buf).await
+        };
+        async_to_poll!(fu, cx)
+    }
+}
+
+
+#[derive(Clone)]
+struct Nothing;
+impl Future for Nothing {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, _: &mut Context) -> Poll<Self::Output> {
+        Poll::Ready(())
+    }
+}
+
+trait CanReset{
+    fn reset(&mut self, i: Instant);
+}
+
+
+#[allow(unused)]
+struct KcpPair{
+    k:Kcb<KcpOutput>,
+    set_readiness: SetReadiness,
+    token: Timeout<Nothing>,
+}
+
+#[allow(unused)]
+impl KcpPair {
+    fn reset_token(&mut self, i: Instant){
+        let token = timeout_at(i, Nothing);
+        // let token_s: &'static mut Timeout<Nothing> = Box::leak(Box::new(token));
+        self.token = token;
+    }
+
+    // fn from_sock(conv: u32, sock:&UdpSocket, addr: &SocketAddr) -> Self{
+        // let kout = KcpOutput{
+        //     udp: Rc::new(RefCell::new(udp),
+        //     peer: addr.clone(),
+        // };
+        // let mut kcb = Kcb::new(
+        //     conv,
+            
+        // );
+
+    // }
 }
